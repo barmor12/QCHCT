@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ניהול סידור עבודה למנופאים – חלוקה שווה (גרסה סופית)</title>
+  <!-- טעינת Chart.js ו-SheetJS -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      direction: rtl;
+      background-color: #f4f6f9;
+      margin: 0;
+      padding: 0;
+      color: #2c3e50;
+    }
+    .container {
+      max-width: 1200px;
+      margin: auto;
+      background: white;
+      padding: 20px;
+    }
+    h2, h3 {
+      color: #34495e;
+      margin-bottom: 10px;
+    }
+    label {
+      font-weight: bold;
+      display: block;
+      margin-top: 10px;
+    }
+    input, select {
+      padding: 6px 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      margin-top: 5px;
+      min-width: 200px;
+    }
+    button {
+      background-color: #2980b9;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 20px;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #1c5980;
+    }
+    table {
+      width: 100%;
+      table-layout: fixed;
+      border-collapse: collapse;
+      margin-top: 15px;
+      background-color: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+    th, td {
+      border: 1px solid #dcdcdc;
+      padding: 8px;
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    th {
+      background-color: #3498db;
+      color: white;
+    }
+    #solutionNote {
+      background-color: #e6f9ed;
+      border: 1px solid #b2dfdb;
+      padding: 10px;
+      margin-top: 20px;
+      font-size: 16px;
+      color: #14532d;
+      border-radius: 6px;
+      white-space: pre-line;
+    }
+    #craneSelection {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    .craneBox {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background-color: #f9f9f9;
+    }
+    .operatorControls {
+      margin-top: 10px;
+    }
+    .operatorControls button {
+      margin-right: 10px;
+    }
+    footer {
+      text-align: center;
+      font-size: 14px;
+      color: #777;
+      padding: 20px;
+      border-top: 1px solid #ccc;
+      background-color: #fff;
+      margin-top: 40px;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h2>ניהול סידור עבודה מפעילים (QC)</h2>
+  
+  <!-- קלט בסיסי -->
+  <label>בחר משמרת:
+    <select id="shiftNumber" onchange="updateOperatorsList();">
+      <option value="shift1">משמרת 1</option>
+      <option value="shift2">משמרת 2</option>
+      <option value="shift3">משמרת 3</option>
+    </select>
+  </label>
+  <label>בחר סוג משמרת:
+    <select id="shiftType" onchange="updateRecommendation();">
+      <option value="morning">בוקר (06:00–15:00)</option>
+      <option value="afternoon">צהריים (15:00–23:00)</option>
+      <option value="night">לילה (23:00–06:00)</option>
+    </select>
+  </label>
+  <label>כמות ידיים (מנופים):
+    <input type="number" id="cranesCount" value="3" min="1" max="9" onchange="updateCraneSelection(); updateRecommendation();">
+  </label>
+  <div id="craneSelection"></div>
+  <label>זמן עבודה כולל למפעיל (בשעות):
+    <input type="number" id="workTime" value="4" min="1" max="8" step="0.5" onchange="updateRecommendation();">
+  </label>
+  <label>המלצה – מספר מפעילים נדרש:
+    <span id="recommendedOperators">-</span>
+  </label>
+  <label>בחר מספר מפעילים:
+    <input type="number" id="operatorCount" value="5" min="1" max="50" onchange="updateOperatorsList();">
+  </label>
+  
+  <!-- טבלת מפעילים עם כפתורי הוספה/מחיקה -->
+  <h3>רשימת מפעילים</h3>
+  <div id="operatorsList"></div>
+  <div class="operatorControls">
+    <button onclick="addOperatorRow();">הוסף שורה</button>
+    <button onclick="deleteOperatorRow();">מחק שורה</button>
+  </div>
+  
+  <!-- כפתור ליצירת הסידור -->
+  <h3>סידור עבודה</h3>
+  <button onclick="displaySchedule();">צור סידור עבודה</button>
+  <div id="scheduleTable"></div>
+  
+  <!-- כפתור לייצוא ל-Excel -->
+  <button onclick="exportToExcelXLSX();">ייצא ל-Excel</button>
+  
+  <!-- הודעת סטטוס -->
+  <div id="solutionNote"></div>
+  
+  <!-- גרף -->
+  <canvas id="chart"></canvas>
+  
+  <!-- טבלת סטטיסטיקה -->
+  <h3>טבלת סטטיסטיקה לפי מפעיל</h3>
+  <div id="statisticsTable"></div>
+  
+  <!-- טבלת הפסקות -->
+  <h3>טבלת הפסקות לפי שעה</h3>
+  <div id="breakTable"></div>
+</div>
+
+<footer>
+  &copy; HCT כל הזכויות שמורות לבר מור
+</footer>
+
+<script>
+// המרת HSL ל-Hex – ליצירת צבעים
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  let c = (1 - Math.abs(2 * l - 1)) * s;
+  let x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  let m = l - c / 2;
+  let r, g, b;
+  if (h < 60) { r = c; g = x; b = 0; }
+  else if (h < 120) { r = x; g = c; b = 0; }
+  else if (h < 180) { r = 0; g = c; b = x; }
+  else if (h < 240) { r = 0; g = x; b = c; }
+  else if (h < 300) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  r = Math.round((r + m) * 255);
+  g = Math.round((g + m) * 255);
+  b = Math.round((b + m) * 255);
+  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+}
+function generateDistinctColor(i, total) {
+  let hue = Math.floor(360 * i / total);
+  return hslToHex(hue, 70, 80);
+}
+
+/* משתנה גלובלי למעקב אחר הגרף */
+let myChart = null;
+/* משתנה גלובלי למעקב אחר המשבצת האחרונה בה עובד כל מפעיל – להפסקות חובה */
+let lastAssignedSlot = {};
+/* משתנה גלובלי למעקב אחר המפעיל האחרון בכל מנוף – לתעדוף */
+let lastAssignedForCrane = {};
+
+/* -------------------------
+   מאגר מפעילים לכל משמרת
+------------------------- */
+const shiftsOperators = {
+  shift1: Array.from({ length: 16 }, (_, i) => ({
+    id: "op1_" + i,
+    name: `מנופאי ${i+1}`,
+    score: 8,
+    active: true,
+    isInstructor: false,
+    scores: {}
+  })),
+  shift2: [
+    { id: "op2_0", name: "תורג'מן", score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op2_1", name: "יהונתן",  score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op2_2", name: "מור",     score: 10, active: true, isInstructor: false, scores: {} },
+    { id: "op2_3", name: "מטודי",   score: 10, active: true, isInstructor: false, scores: {} },
+    { id: "op2_4", name: "שקד",     score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op2_5", name: "אלמוג",   score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op2_6", name: "איתי",    score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op2_7", name: "פרי",     score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op2_8", name: "חוף",     score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op2_9", name: "צחי",     score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op2_10", name: "משה",    score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op2_11", name: "ניסן",   score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op2_12", name: "שי",     score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op2_13", name: "שון",    score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op2_14", name: "רועי",   score: 7, active: true, isInstructor: false, scores: {} }
+  ],
+  shift3: [
+    { id: "op3_0", name: "עומרי",   score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_1", name: "פינטו",   score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_2", name: "עוז",     score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_3", name: "ישי",     score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_4", name: "ליאור",   score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_5", name: "שי",      score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_6", name: "גל",      score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_7", name: "מור",     score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_8", name: "איגור",   score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_9", name: "דוד",     score: 7, active: true, isInstructor: true, scores: {} },
+    { id: "op3_10", name: "דניאל",  score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_11", name: "יונתן",  score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_12", name: "נדב",    score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_13", name: "רומן",   score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_14", name: "נועם",   score: 7, active: true, isInstructor: false, scores: {} },
+    { id: "op3_15", name: "קוסטו",  score: 7, active: true, isInstructor: false, scores: {} }
+  ]
+};
+
+/* -------------------------
+   רשימת מנופים
+------------------------- */
+const allCranes = ["QC01", "QC02", "QC03", "QC04", "QC05", "QC06", "QC07", "QC08", "ROS"];
+
+/* -------------------------
+   עדכון תצוגת מנופים
+------------------------- */
+function updateCraneSelection() {
+  const craneCount = parseInt(document.getElementById("cranesCount").value) || 1;
+  let html = "";
+  allCranes.forEach((crane, i) => {
+    html += `<div class="craneBox">
+      <input type="checkbox" class="craneCheckbox" value="${crane}" ${i < craneCount ? "checked" : ""}>
+      <label>${crane}</label>
+      <label>תעדוף:
+        <input type="checkbox" class="preferredCheckbox" value="${crane}">
+      </label>
+    </div>`;
+  });
+  document.getElementById("craneSelection").innerHTML = html;
+}
+
+/* -------------------------
+   עדכון המלצת מפעילים
+------------------------- */
+function updateRecommendation() {
+  try {
+    const shiftType = document.getElementById("shiftType").value;
+    const shiftMap = { morning: [6,15], afternoon: [15,23], night: [23,30] };
+    const [start, end] = shiftMap[shiftType] || [6,15];
+    const shiftDuration = end - start;
+    const craneCount = parseInt(document.getElementById("cranesCount").value) || 1;
+    const workTime = parseFloat(document.getElementById("workTime").value) || 1;
+    const recommended = Math.ceil((shiftDuration * craneCount) / workTime);
+    document.getElementById("recommendedOperators").innerText = recommended;
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/* -------------------------
+   בניית טבלת מפעילים לפי operatorCount
+------------------------- */
+function updateOperatorsList() {
+  const shift = document.getElementById("shiftNumber").value;
+  const ops = shiftsOperators[shift];
+  const defaultNames = ops.map(item => item.name);
+  const count = parseInt(document.getElementById("operatorCount").value) || 0;
+  
+  let html = '<table><tr><th>#</th><th>שם מפעיל</th><th>ציון</th><th>פעיל</th><th>מדריך?</th></tr>';
+  for (let i = 0; i < count; i++) {
+    let defName = (i < defaultNames.length) ? defaultNames[i] : `מפעיל חדש ${i+1}`;
+    let defScore = (i < ops.length) ? ops[i].score : 7;
+    let defIsInstructor = (i < ops.length) ? ops[i].isInstructor : false;
+    html += `<tr>
+      <td>${i+1}</td>
+      <td>
+        <select class="operatorName" id="nameSel${i}">
+          ${defaultNames.map(n => `<option value="${n}" ${n===defName ? "selected" : ""}>${n}</option>`).join('')}
+          <option value="new">חדש...</option>
+        </select>
+        <input type="text" id="name${i}" value="${defName}" style="display:none; width:200px;" placeholder="הכנס שם">
+      </td>
+      <td><input type="number" id="score${i}" value="${defScore}" min="1" max="10"></td>
+      <td><input type="checkbox" id="active${i}" checked></td>
+      <td><input type="checkbox" id="instructor${i}" ${defIsInstructor ? "checked" : ""}></td>
+    </tr>`;
+  }
+  html += '</table>';
+  document.getElementById("operatorsList").innerHTML = html;
+  
+  for (let i = 0; i < count; i++) {
+    const sel = document.getElementById("nameSel" + i);
+    const txt = document.getElementById("name" + i);
+    sel.addEventListener("change", function() {
+      if (sel.value === "new") {
+        txt.style.display = "block";
+        txt.value = "";
+        displaySchedule();
+      } else {
+        txt.style.display = "none";
+        txt.value = sel.value;
+        displaySchedule();
+      }
+    });
+    txt.addEventListener("input", function() {
+      sel.value = txt.value;
+      displaySchedule();
+    });
+  }
+}
+
+/* -------------------------
+   ייצוא ל-Excel (XLSX) עם צבעים ייחודיים לכל מפעיל
+------------------------- */
+function exportToExcelXLSX() {
+  const tableEl = document.getElementById("scheduleInnerTable");
+  if (!tableEl) return;
+  let aoa = [];
+  const rows = tableEl.querySelectorAll("tr");
+  rows.forEach(row => {
+    let rowData = [];
+    const cells = row.querySelectorAll("th, td");
+    cells.forEach(cell => {
+      const sel = cell.querySelector("select");
+      if (sel) rowData.push(sel.value);
+      else rowData.push(cell.innerText);
+    });
+    aoa.push(rowData);
+  });
+  
+  let ws = XLSX.utils.aoa_to_sheet(aoa);
+  let wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Schedule");
+  
+  let nameMap = {};
+  let idx = 0;
+  for (let r = 1; r < aoa.length; r++) {
+    for (let c = 1; c < aoa[r].length; c++) {
+      let val = aoa[r][c];
+      if (val && !nameMap[val]) { nameMap[val] = idx++; }
+    }
+  }
+  let uniqueCount = Object.keys(nameMap).length;
+  let opColorMap = {};
+  Object.keys(nameMap).forEach((name, i) => {
+    opColorMap[name] = generateDistinctColor(i, uniqueCount);
+  });
+  
+  for (let cell in ws) {
+    if (cell[0] === "!") continue;
+    let val = ws[cell].v;
+    if (opColorMap[val] !== undefined) {
+      ws[cell].s = { fill: { fgColor: { rgb: opColorMap[val].substring(1) } } };
+    }
+  }
+  
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary', cellStyles: true });
+  function s2ab(s) {
+    let buf = new ArrayBuffer(s.length);
+    let view = new Uint8Array(buf);
+    for (let i = 0; i < s.length; i++) view[i] = s.charCodeAt(i) & 0xFF;
+    return buf;
+  }
+  const blob = new Blob([s2ab(wbout)], { type: "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "schedule.xlsx";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* -------------------------
+   מאזינים לשינוי – מניעת כפילות בשורה
+------------------------- */
+document.addEventListener("change", function(e) {
+  if (e.target && e.target.classList.contains("scheduleCell")) {
+    scheduleCellChanged(e.target);
+  }
+});
+function scheduleCellChanged(sel) {
+  const row = sel.parentElement.parentElement;
+  let currentValue = sel.value;
+  let duplicate = false;
+  row.querySelectorAll("select").forEach(s => {
+    if (s !== sel && s.value === currentValue) {
+      duplicate = true;
+    }
+  });
+  if (duplicate) {
+    alert("המפעיל כבר נבחר בשורה זו עבור מנוף אחר. נא לבחור מפעיל אחר.");
+    let prev = sel.getAttribute("data-prev");
+    if (prev) {
+      sel.value = prev;
+    } else {
+      sel.value = "";
+    }
+  } else {
+    sel.setAttribute("data-prev", sel.value);
+  }
+  updateSelectColor(sel);
+  recalcAll();
+}
+
+/* -------------------------
+   updateSelectColor – עדכון צבע הרקע של select לפי הערך החדש
+------------------------- */
+function updateSelectColor(sel) {
+  const selects = document.querySelectorAll(".scheduleCell");
+  let names = new Set();
+  selects.forEach(s => names.add(s.value));
+  names = Array.from(names);
+  let newMap = {};
+  names.forEach((name, i) => {
+    newMap[name] = generateDistinctColor(i, names.length);
+  });
+  sel.style.backgroundColor = newMap[sel.value] || "";
+}
+
+/* -------------------------
+   recalcAll – עדכון טבלאות סטטיסטיקה, גרף והפסקות
+------------------------- */
+function recalcAll() {
+  const table = document.getElementById("scheduleInnerTable");
+  if (!table) return;
+  const rows = table.querySelectorAll("tr");
+  if (rows.length < 2) return;
+  let T = rows.length - 1;
+  
+  let opMap = {};
+  for (let r = 1; r < rows.length; r++) {
+    const cells = rows[r].querySelectorAll("td");
+    for (let c = 1; c < cells.length; c++) {
+      const sel = cells[c].querySelector("select");
+      if (!sel) continue;
+      let opName = sel.value;
+      if (!opMap[opName]) { opMap[opName] = { busy: Array(T).fill(false), total: 0 }; }
+      opMap[opName].busy[r-1] = true;
+    }
+  }
+  for (let name in opMap) {
+    let countTrue = opMap[name].busy.filter(x => x).length;
+    opMap[name].total = countTrue * 0.5;
+  }
+  
+  let stat = '<table><tr><th>שם</th><th>סה"כ שעות</th></tr>';
+  for (let name in opMap) {
+    stat += `<tr><td>${name}</td><td>${opMap[name].total}</td></tr>`;
+  }
+  stat += '</table>';
+  document.getElementById("statisticsTable").innerHTML = stat;
+  
+  if (myChart) myChart.destroy();
+  let labels = Object.keys(opMap);
+  let worked = labels.map(n => opMap[n].total);
+  let rests = labels.map(n => T * 0.5 - opMap[n].total);
+  myChart = new Chart(document.getElementById("chart"), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'שעות עבודה', data: worked, backgroundColor: '#3498db' },
+        { label: 'שעות הפסקה', data: rests, backgroundColor: '#e67e22' }
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'top' } } }
+  });
+  
+  let breakTable = '<table><tr><th>שעה</th><th>בהפסקה</th></tr>';
+  const shiftType = document.getElementById("shiftType").value;
+  const shiftMap2 = { morning: [6,15], afternoon: [15,23], night: [23,30] };
+  const [s, e] = shiftMap2[shiftType];
+  for (let h = 0; h < Math.floor(T / 2); h++) {
+    let resting = [];
+    for (let name in opMap) {
+      if (!opMap[name].busy[2 * h] && !opMap[name].busy[2 * h + 1]) {
+        resting.push(name);
+      }
+    }
+    let hourVal = s + h;
+    breakTable += `<tr><td>${(hourVal % 24)}:00–${((hourVal + 1) % 24)}:00</td><td>${resting.join(", ") || '-'}</td></tr>`;
+  }
+  breakTable += '</table>';
+  document.getElementById("breakTable").innerHTML = breakTable;
+}
+
+/* -------------------------
+   אלגוריתם השיבוץ – 3 מעברים עם הפסקה חובה ותעדוף לפי ציונים
+   (עדכון: כאשר מנוף מתועדף, נבחר באקראי מבין המפעילים עם הציון המקסימלי)
+------------------------- */
+function displaySchedule() {
+  const shiftMap = { morning: [6,15], afternoon: [15,23], night: [23,30] };
+  const [start, end] = shiftMap[document.getElementById("shiftType").value];
+  const halfHours = Array.from({ length: (end - start) * 2 }, (_, i) => start + i * 0.5);
+  const T = halfHours.length;
+  
+  const craneElems = Array.from(document.querySelectorAll(".craneCheckbox")).filter(cb => cb.checked);
+  const cranes = craneElems.map(cb => cb.value);
+  
+  const preferredElems = Array.from(document.querySelectorAll(".preferredCheckbox")).filter(cb => cb.checked);
+  const preferred = preferredElems.map(cb => cb.value);
+  
+  const count = parseInt(document.getElementById("operatorCount").value) || 0;
+  let operators = [];
+  for (let i = 0; i < count; i++) {
+    const nameVal = document.getElementById("name" + i).value;
+    const scoreVal = +document.getElementById("score" + i).value;
+    const activeVal = document.getElementById("active" + i).checked;
+    const instructorVal = document.getElementById("instructor" + i).checked;
+    if (!nameVal) continue;
+    operators.push({
+      id: "op" + i,
+      name: nameVal,
+      score: scoreVal,
+      active: activeVal,
+      isInstructor: instructorVal,
+      busy: Array(T).fill(false),
+      total: 0,
+      restUntil: 0
+    });
+  }
+  operators = operators.filter(op => op.active);
+  
+  operators.forEach(op => lastAssignedSlot[op.id] = -3);
+  cranes.forEach(c => { lastAssignedForCrane[c] = null; });
+  
+  const schedule = Object.fromEntries(cranes.map(c => [c, Array(T).fill(null)]));
+  
+  const mainBlocks = [6, 5, 4, 3];
+  const fallbackBlocks = [2, 1];
+  
+  let warning = false, shortBlockUsed = false, secondPassUsed = false, forcedPassUsed = false;
+  
+  // מעבר ראשון
+  for (let t = 0; t < T; t++) {
+    for (let crane of cranes) {
+      if (schedule[crane][t]) continue;
+      let assigned = false;
+      const remaining = T - t;
+      for (let b of mainBlocks) {
+        if (b > remaining) continue;
+        assigned = tryAssignBlock(t, b, crane, false, 3.25);
+        if (assigned) break;
+      }
+      if (!assigned && remaining < 3) {
+        for (let b of fallbackBlocks) {
+          if (b > remaining) continue;
+          assigned = tryAssignBlock(t, b, crane, true, 3.25);
+          if (assigned) { shortBlockUsed = true; break; }
+        }
+      }
+      if (!assigned) warning = true;
+    }
+  }
+  
+  function tryAssignBlock(startIndex, blockSize, crane, isFallback, maxHours) {
+    let candidates = operators.filter(op => {
+      if (startIndex < lastAssignedSlot[op.id] + 3) return false;
+      if (op.total + blockSize * 0.5 > maxHours) return false;
+      if (op.restUntil > startIndex) return false;
+      for (let i = startIndex; i < startIndex + blockSize; i++) {
+        if (op.busy[i]) return false;
+      }
+      return true;
+    });
+    
+    if (preferred.includes(crane)) {
+      // חשב את הציון המקסימלי מבין המועמדים
+      let maxScore = Math.max(...candidates.map(op => op.score));
+      // סנן כך שייבחרו רק המפעילים עם הציון המקסימלי
+      candidates = candidates.filter(op => op.score === maxScore);
+      // בחר באופן אקראי מביניהם
+      if (candidates.length > 1) {
+        let randomIndex = Math.floor(Math.random() * candidates.length);
+        candidates = [candidates[randomIndex]];
+      }
+    }
+    
+    candidates.sort((a, b) => a.total - b.total);
+    if (!candidates.length) return false;
+    const chosen = candidates[0];
+    for (let i = 0; i < blockSize; i++) {
+      schedule[crane][startIndex + i] = chosen.name;
+      chosen.busy[startIndex + i] = true;
+    }
+    chosen.total += blockSize * 0.5;
+    chosen.restUntil = startIndex + blockSize + 2;
+    lastAssignedSlot[chosen.id] = startIndex;
+    lastAssignedForCrane[crane] = chosen.id;
+    return true;
+  }
+  
+  if (warning) {
+    for (let t = 0; t < T; t++) {
+      for (let crane of cranes) {
+        if (!schedule[crane][t]) {
+          let candidate = operators.find(op => {
+            if (op.busy[t]) return false;
+            return op.total + 0.5 <= 4;
+          });
+          if (candidate) {
+            schedule[crane][t] = candidate.name;
+            candidate.busy[t] = true;
+            candidate.total += 0.5;
+            secondPassUsed = true;
+          }
+        }
+      }
+    }
+  }
+  
+  for (let t = 0; t < T; t++) {
+    for (let crane of cranes) {
+      if (!schedule[crane][t]) {
+        let candidate = operators.reduce((best, cur) => {
+          if (!cur.active) return best;
+          if (!best || cur.total < best.total) return cur;
+          return best;
+        }, null);
+        if (candidate) {
+          schedule[crane][t] = candidate.name;
+          candidate.busy[t] = true;
+          candidate.total += 0.5;
+          forcedPassUsed = true;
+        }
+      }
+    }
+  }
+  
+  // בניית מפה של צבעים לכל מפעיל – לפי שמות שמופיעים בטבלה
+  let uniqueOps = {};
+  operators.forEach(op => { uniqueOps[op.name] = true; });
+  let uniqueNames = Object.keys(uniqueOps);
+  let opColorMap = {};
+  uniqueNames.forEach((name, i) => {
+    opColorMap[name] = generateDistinctColor(i, uniqueNames.length);
+  });
+  
+  let htmlOutput = '<table id="scheduleInnerTable"><tr><th>שעה \\ מנוף</th>' +
+                   cranes.map(c => `<th>${c}</th>`).join('') + '</tr>';
+  halfHours.forEach((h, i) => {
+    const from = ("0" + Math.floor(h) % 24).slice(-2) + ":" + (h % 1 ? "30" : "00");
+    const to = ("0" + Math.floor(h + 0.5) % 24).slice(-2) + ":" + ((h + 0.5) % 1 ? "30" : "00");
+    htmlOutput += `<tr><td>${from}–${to}</td>`;
+    cranes.forEach(crane => {
+      let assigned = schedule[crane][i] || "-";
+      htmlOutput += `<td>
+        <select class="scheduleCell" onchange="scheduleCellChanged(this)" style="background-color: ${opColorMap[assigned] || ''};">
+          ${operators.map(op => `<option value="${op.name}" ${op.name===assigned?"selected":""}>${op.name}</option>`).join('')}
+        </select>
+      </td>`;
+    });
+    htmlOutput += '</tr>';
+  });
+  htmlOutput += '</table>';
+  document.getElementById("scheduleTable").innerHTML = htmlOutput;
+  
+  recalcAll();
+  
+  let solutionMessages = [];
+  if (warning) solutionMessages.push("במעבר הראשון נותרו חורים בשל מגבלות שעות או זמינות.");
+  if (secondPassUsed) solutionMessages.push("בוצע מעבר שני עם הרחבת מגבלת השעות ל-4 שעות למילוי חלק מהחורים.");
+  if (forcedPassUsed) solutionMessages.push("❗️ במעבר השלישי אוישו חורים בכוח, ללא מגבלות שעות.");
+  if (!warning && !secondPassUsed && !forcedPassUsed)
+    solutionMessages.push("✅ בוצע שיבוץ מלא ללא חריגות.");
+  document.getElementById("solutionNote").innerText = solutionMessages.join("\n");
+}
+
+/* -------------------------
+   מאזינים לשינוי – מניעת כפילות בשורה
+------------------------- */
+document.addEventListener("change", function(e) {
+  if (e.target && e.target.classList.contains("scheduleCell")) {
+    scheduleCellChanged(e.target);
+  }
+});
+function scheduleCellChanged(sel) {
+  const row = sel.parentElement.parentElement;
+  let currentValue = sel.value;
+  let duplicate = false;
+  row.querySelectorAll("select").forEach(s => {
+    if (s !== sel && s.value === currentValue) {
+      duplicate = true;
+    }
+  });
+  if (duplicate) {
+    alert("המפעיל כבר נבחר בשורה זו עבור מנוף אחר. נא לבחור מפעיל אחר.");
+    let prev = sel.getAttribute("data-prev");
+    if (prev) {
+      sel.value = prev;
+    } else {
+      sel.value = "";
+    }
+  } else {
+    sel.setAttribute("data-prev", sel.value);
+  }
+  updateSelectColor(sel);
+  recalcAll();
+}
+
+/* -------------------------
+   updateSelectColor – עדכון צבע הרקע של select לפי הערך החדש
+------------------------- */
+function updateSelectColor(sel) {
+  const selects = document.querySelectorAll(".scheduleCell");
+  let names = new Set();
+  selects.forEach(s => names.add(s.value));
+  names = Array.from(names);
+  let newMap = {};
+  names.forEach((name, i) => {
+    newMap[name] = generateDistinctColor(i, names.length);
+  });
+  sel.style.backgroundColor = newMap[sel.value] || "";
+}
+
+/* -------------------------
+   recalcAll – עדכון טבלאות סטטיסטיקה, גרף והפסקות
+------------------------- */
+function recalcAll() {
+  const table = document.getElementById("scheduleInnerTable");
+  if (!table) return;
+  const rows = table.querySelectorAll("tr");
+  if (rows.length < 2) return;
+  let T = rows.length - 1;
+  
+  let opMap = {};
+  for (let r = 1; r < rows.length; r++) {
+    const cells = rows[r].querySelectorAll("td");
+    for (let c = 1; c < cells.length; c++) {
+      const sel = cells[c].querySelector("select");
+      if (!sel) continue;
+      let opName = sel.value;
+      if (!opMap[opName]) { opMap[opName] = { busy: Array(T).fill(false), total: 0 }; }
+      opMap[opName].busy[r-1] = true;
+    }
+  }
+  for (let name in opMap) {
+    let countTrue = opMap[name].busy.filter(x => x).length;
+    opMap[name].total = countTrue * 0.5;
+  }
+  
+  let stat = '<table><tr><th>שם</th><th>סה"כ שעות</th></tr>';
+  for (let name in opMap) {
+    stat += `<tr><td>${name}</td><td>${opMap[name].total}</td></tr>`;
+  }
+  stat += '</table>';
+  document.getElementById("statisticsTable").innerHTML = stat;
+  
+  if (myChart) myChart.destroy();
+  let labels = Object.keys(opMap);
+  let worked = labels.map(n => opMap[n].total);
+  let rests = labels.map(n => T * 0.5 - opMap[n].total);
+  myChart = new Chart(document.getElementById("chart"), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'שעות עבודה', data: worked, backgroundColor: '#3498db' },
+        { label: 'שעות הפסקה', data: rests, backgroundColor: '#e67e22' }
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'top' } } }
+  });
+  
+  let breakTable = '<table><tr><th>שעה</th><th>בהפסקה</th></tr>';
+  const shiftType = document.getElementById("shiftType").value;
+  const shiftMap2 = { morning: [6,15], afternoon: [15,23], night: [23,30] };
+  const [s, e] = shiftMap2[shiftType];
+  for (let h = 0; h < Math.floor(T / 2); h++) {
+    let resting = [];
+    for (let name in opMap) {
+      if (!opMap[name].busy[2 * h] && !opMap[name].busy[2 * h + 1]) {
+        resting.push(name);
+      }
+    }
+    let hourVal = s + h;
+    breakTable += `<tr><td>${(hourVal % 24)}:00–${((hourVal + 1) % 24)}:00</td><td>${resting.join(", ") || '-'}</td></tr>`;
+  }
+  breakTable += '</table>';
+  document.getElementById("breakTable").innerHTML = breakTable;
+}
+
+/* -------------------------
+   קריאות להוספה/מחיקה של שורות מפעילים
+------------------------- */
+function addOperatorRow() {
+  let count = parseInt(document.getElementById("operatorCount").value) || 0;
+  count++;
+  document.getElementById("operatorCount").value = count;
+  updateOperatorsList();
+}
+function deleteOperatorRow() {
+  let count = parseInt(document.getElementById("operatorCount").value) || 0;
+  if (count > 1) {
+    count--;
+    document.getElementById("operatorCount").value = count;
+    updateOperatorsList();
+  }
+}
+
+/* -------------------------
+   ייצוא ל-Excel (XLSX) עם צבעים ייחודיים
+------------------------- */
+function exportToExcelXLSX() {
+  const tableEl = document.getElementById("scheduleInnerTable");
+  if (!tableEl) return;
+  let aoa = [];
+  const rows = tableEl.querySelectorAll("tr");
+  rows.forEach(row => {
+    let rowData = [];
+    const cells = row.querySelectorAll("th, td");
+    cells.forEach(cell => {
+      const sel = cell.querySelector("select");
+      if (sel) rowData.push(sel.value);
+      else rowData.push(cell.innerText);
+    });
+    aoa.push(rowData);
+  });
+  
+  let ws = XLSX.utils.aoa_to_sheet(aoa);
+  let wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Schedule");
+  
+  let nameMap = {};
+  let idx = 0;
+  for (let r = 1; r < aoa.length; r++) {
+    for (let c = 1; c < aoa[r].length; c++) {
+      let val = aoa[r][c];
+      if (val && !nameMap[val]) { nameMap[val] = idx++; }
+    }
+  }
+  let uniqueCount = Object.keys(nameMap).length;
+  let opColorMap = {};
+  Object.keys(nameMap).forEach((name, i) => {
+    opColorMap[name] = generateDistinctColor(i, uniqueCount);
+  });
+  
+  for (let cell in ws) {
+    if (cell[0] === "!") continue;
+    let val = ws[cell].v;
+    if (opColorMap[val] !== undefined) {
+      ws[cell].s = { fill: { fgColor: { rgb: opColorMap[val].substring(1) } } };
+    }
+  }
+  
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary', cellStyles: true });
+  function s2ab(s) {
+    let buf = new ArrayBuffer(s.length);
+    let view = new Uint8Array(buf);
+    for (let i = 0; i < s.length; i++) view[i] = s.charCodeAt(i) & 0xFF;
+    return buf;
+  }
+  const blob = new Blob([s2ab(wbout)], { type: "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "schedule.xlsx";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* -------------------------
+   מאזינים לשינוי – מניעת כפילות בשורה
+------------------------- */
+document.addEventListener("change", function(e) {
+  if (e.target && e.target.classList.contains("scheduleCell")) {
+    scheduleCellChanged(e.target);
+  }
+});
+function scheduleCellChanged(sel) {
+  const row = sel.parentElement.parentElement;
+  let currentValue = sel.value;
+  let duplicate = false;
+  row.querySelectorAll("select").forEach(s => {
+    if (s !== sel && s.value === currentValue) {
+      duplicate = true;
+    }
+  });
+  if (duplicate) {
+    alert("המפעיל כבר נבחר בשורה זו עבור מנוף אחר. נא לבחור מפעיל אחר.");
+    let prev = sel.getAttribute("data-prev");
+    if (prev) {
+      sel.value = prev;
+    } else {
+      sel.value = "";
+    }
+  } else {
+    sel.setAttribute("data-prev", sel.value);
+  }
+  updateSelectColor(sel);
+  recalcAll();
+}
+
+/* -------------------------
+   updateSelectColor – עדכון צבע הרקע של select לפי הערך החדש
+------------------------- */
+function updateSelectColor(sel) {
+  const selects = document.querySelectorAll(".scheduleCell");
+  let names = new Set();
+  selects.forEach(s => names.add(s.value));
+  names = Array.from(names);
+  let newMap = {};
+  names.forEach((name, i) => {
+    newMap[name] = generateDistinctColor(i, names.length);
+  });
+  sel.style.backgroundColor = newMap[sel.value] || "";
+}
+
+/* -------------------------
+   recalcAll – עדכון טבלאות סטטיסטיקה, גרף והפסקות
+------------------------- */
+function recalcAll() {
+  const table = document.getElementById("scheduleInnerTable");
+  if (!table) return;
+  const rows = table.querySelectorAll("tr");
+  if (rows.length < 2) return;
+  let T = rows.length - 1;
+  
+  let opMap = {};
+  for (let r = 1; r < rows.length; r++) {
+    const cells = rows[r].querySelectorAll("td");
+    for (let c = 1; c < cells.length; c++) {
+      const sel = cells[c].querySelector("select");
+      if (!sel) continue;
+      let opName = sel.value;
+      if (!opMap[opName]) { opMap[opName] = { busy: Array(T).fill(false), total: 0 }; }
+      opMap[opName].busy[r-1] = true;
+    }
+  }
+  for (let name in opMap) {
+    let countTrue = opMap[name].busy.filter(x => x).length;
+    opMap[name].total = countTrue * 0.5;
+  }
+  
+  let stat = '<table><tr><th>שם</th><th>סה"כ שעות</th></tr>';
+  for (let name in opMap) {
+    stat += `<tr><td>${name}</td><td>${opMap[name].total}</td></tr>`;
+  }
+  stat += '</table>';
+  document.getElementById("statisticsTable").innerHTML = stat;
+  
+  if (myChart) myChart.destroy();
+  let labels = Object.keys(opMap);
+  let worked = labels.map(n => opMap[n].total);
+  let rests = labels.map(n => T * 0.5 - opMap[n].total);
+  myChart = new Chart(document.getElementById("chart"), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'שעות עבודה', data: worked, backgroundColor: '#3498db' },
+        { label: 'שעות הפסקה', data: rests, backgroundColor: '#e67e22' }
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'top' } } }
+  });
+  
+  let breakTable = '<table><tr><th>שעה</th><th>בהפסקה</th></tr>';
+  const shiftType = document.getElementById("shiftType").value;
+  const shiftMap2 = { morning: [6,15], afternoon: [15,23], night: [23,30] };
+  const [s, e] = shiftMap2[shiftType];
+  for (let h = 0; h < Math.floor(T / 2); h++) {
+    let resting = [];
+    for (let name in opMap) {
+      if (!opMap[name].busy[2 * h] && !opMap[name].busy[2 * h + 1]) {
+        resting.push(name);
+      }
+    }
+    let hourVal = s + h;
+    breakTable += `<tr><td>${(hourVal % 24)}:00–${((hourVal+1) % 24)}:00</td><td>${resting.join(", ") || '-'}</td></tr>`;
+  }
+  breakTable += '</table>';
+  document.getElementById("breakTable").innerHTML = breakTable;
+}
+
+/* -------------------------
+   אלגוריתם השיבוץ – 3 מעברים עם הפסקה חובה ותעדוף לפי ציונים
+   (עדכון: כאשר מנוף מתועדף, נבחר באופן אקראי מבין המפעילים עם הציון המקסימלי)
+------------------------- */
+function displaySchedule() {
+  const shiftMap = { morning: [6,15], afternoon: [15,23], night: [23,30] };
+  const [start, end] = shiftMap[document.getElementById("shiftType").value];
+  const halfHours = Array.from({ length: (end - start) * 2 }, (_, i) => start + i * 0.5);
+  const T = halfHours.length;
+  
+  const craneElems = Array.from(document.querySelectorAll(".craneCheckbox")).filter(cb => cb.checked);
+  const cranes = craneElems.map(cb => cb.value);
+  
+  const preferredElems = Array.from(document.querySelectorAll(".preferredCheckbox")).filter(cb => cb.checked);
+  const preferred = preferredElems.map(cb => cb.value);
+  
+  const count = parseInt(document.getElementById("operatorCount").value) || 0;
+  let operators = [];
+  for (let i = 0; i < count; i++) {
+    const nameVal = document.getElementById("name" + i).value;
+    const scoreVal = +document.getElementById("score" + i).value;
+    const activeVal = document.getElementById("active" + i).checked;
+    const instructorVal = document.getElementById("instructor" + i).checked;
+    if (!nameVal) continue;
+    operators.push({
+      id: "op" + i,
+      name: nameVal,
+      score: scoreVal,
+      active: activeVal,
+      isInstructor: instructorVal,
+      busy: Array(T).fill(false),
+      total: 0,
+      restUntil: 0
+    });
+  }
+  operators = operators.filter(op => op.active);
+  
+  operators.forEach(op => lastAssignedSlot[op.id] = -3);
+  cranes.forEach(c => { lastAssignedForCrane[c] = null; });
+  
+  const schedule = Object.fromEntries(cranes.map(c => [c, Array(T).fill(null)]));
+  
+  const mainBlocks = [6, 5, 4, 3];
+  const fallbackBlocks = [2, 1];
+  
+  let warning = false, shortBlockUsed = false, secondPassUsed = false, forcedPassUsed = false;
+  
+  // מעבר ראשון
+  for (let t = 0; t < T; t++) {
+    for (let crane of cranes) {
+      if (schedule[crane][t]) continue;
+      let assigned = false;
+      const remaining = T - t;
+      for (let b of mainBlocks) {
+        if (b > remaining) continue;
+        assigned = tryAssignBlock(t, b, crane, false, 3.25);
+        if (assigned) break;
+      }
+      if (!assigned && remaining < 3) {
+        for (let b of fallbackBlocks) {
+          if (b > remaining) continue;
+          assigned = tryAssignBlock(t, b, crane, true, 3.25);
+          if (assigned) { shortBlockUsed = true; break; }
+        }
+      }
+      if (!assigned) warning = true;
+    }
+  }
+  
+  function tryAssignBlock(startIndex, blockSize, crane, isFallback, maxHours) {
+    let candidates = operators.filter(op => {
+      if (startIndex < lastAssignedSlot[op.id] + 3) return false;
+      if (op.total + blockSize * 0.5 > maxHours) return false;
+      if (op.restUntil > startIndex) return false;
+      for (let i = startIndex; i < startIndex + blockSize; i++) {
+        if (op.busy[i]) return false;
+      }
+      return true;
+    });
+    
+    if (preferred.includes(crane)) {
+      let maxScore = Math.max(...candidates.map(op => op.score));
+      candidates = candidates.filter(op => op.score === maxScore);
+      // בחר באופן אקראי מבין המפעילים עם הציון המקסימלי
+      if (candidates.length > 1) {
+        let randomIndex = Math.floor(Math.random() * candidates.length);
+        candidates = [candidates[randomIndex]];
+      }
+    }
+    
+    candidates.sort((a, b) => a.total - b.total);
+    if (!candidates.length) return false;
+    const chosen = candidates[0];
+    for (let i = 0; i < blockSize; i++) {
+      schedule[crane][startIndex + i] = chosen.name;
+      chosen.busy[startIndex + i] = true;
+    }
+    chosen.total += blockSize * 0.5;
+    chosen.restUntil = startIndex + blockSize + 2;
+    lastAssignedSlot[chosen.id] = startIndex;
+    lastAssignedForCrane[crane] = chosen.id;
+    return true;
+  }
+  
+  if (warning) {
+    for (let t = 0; t < T; t++) {
+      for (let crane of cranes) {
+        if (!schedule[crane][t]) {
+          let candidate = operators.find(op => {
+            if (op.busy[t]) return false;
+            return op.total + 0.5 <= 4;
+          });
+          if (candidate) {
+            schedule[crane][t] = candidate.name;
+            candidate.busy[t] = true;
+            candidate.total += 0.5;
+            secondPassUsed = true;
+          }
+        }
+      }
+    }
+  }
+  
+  for (let t = 0; t < T; t++) {
+    for (let crane of cranes) {
+      if (!schedule[crane][t]) {
+        let candidate = operators.reduce((best, cur) => {
+          if (!cur.active) return best;
+          if (!best || cur.total < best.total) return cur;
+          return best;
+        }, null);
+        if (candidate) {
+          schedule[crane][t] = candidate.name;
+          candidate.busy[t] = true;
+          candidate.total += 0.5;
+          forcedPassUsed = true;
+        }
+      }
+    }
+  }
+  
+  // בניית מפה של צבעים לכל מפעיל – לפי השמות שמופיעים בטבלה
+  let uniqueOps = {};
+  operators.forEach(op => { uniqueOps[op.name] = true; });
+  let uniqueNames = Object.keys(uniqueOps);
+  let opColorMap = {};
+  uniqueNames.forEach((name, i) => {
+    opColorMap[name] = generateDistinctColor(i, uniqueNames.length);
+  });
+  
+  let htmlOutput = '<table id="scheduleInnerTable"><tr><th>שעה \\ מנוף</th>' +
+                   cranes.map(c => `<th>${c}</th>`).join('') + '</tr>';
+  halfHours.forEach((h, i) => {
+    const from = ("0" + Math.floor(h) % 24).slice(-2) + ":" + (h % 1 ? "30" : "00");
+    const to = ("0" + Math.floor(h + 0.5) % 24).slice(-2) + ":" + ((h + 0.5) % 1 ? "30" : "00");
+    htmlOutput += `<tr><td>${from}–${to}</td>`;
+    cranes.forEach(crane => {
+      let assigned = schedule[crane][i] || "-";
+      htmlOutput += `<td>
+        <select class="scheduleCell" onchange="scheduleCellChanged(this)" style="background-color: ${opColorMap[assigned] || ''};" data-prev="${assigned}">
+          ${operators.map(op => `<option value="${op.name}" ${op.name===assigned?"selected":""}>${op.name}</option>`).join('')}
+        </select>
+      </td>`;
+    });
+    htmlOutput += '</tr>';
+  });
+  htmlOutput += '</table>';
+  document.getElementById("scheduleTable").innerHTML = htmlOutput;
+  
+  recalcAll();
+  
+  let solutionMessages = [];
+  if (warning) solutionMessages.push("במעבר הראשון נותרו חורים בשל מגבלות שעות או זמינות.");
+  if (secondPassUsed) solutionMessages.push("בוצע מעבר שני עם הרחבת מגבלת השעות ל-4 שעות למילוי חלק מהחורים.");
+  if (forcedPassUsed) solutionMessages.push("❗️ במעבר השלישי אוישו חורים בכוח, ללא מגבלות שעות.");
+  if (!warning && !secondPassUsed && !forcedPassUsed)
+    solutionMessages.push("✅ בוצע שיבוץ מלא ללא חריגות.");
+  document.getElementById("solutionNote").innerText = solutionMessages.join("\n");
+}
+
+/* -------------------------
+   מאזינים לשינוי – מניעת כפילות בשורה
+------------------------- */
+document.addEventListener("change", function(e) {
+  if (e.target && e.target.classList.contains("scheduleCell")) {
+    scheduleCellChanged(e.target);
+  }
+});
+function scheduleCellChanged(sel) {
+  const row = sel.parentElement.parentElement;
+  let currentValue = sel.value;
+  let duplicate = false;
+  row.querySelectorAll("select").forEach(s => {
+    if (s !== sel && s.value === currentValue) {
+      duplicate = true;
+    }
+  });
+  if (duplicate) {
+    alert("המפעיל כבר נבחר בשורה זו עבור מנוף אחר. נא לבחור מפעיל אחר.");
+    let prev = sel.getAttribute("data-prev");
+    if (prev) {
+      sel.value = prev;
+    } else {
+      sel.value = "";
+    }
+  } else {
+    sel.setAttribute("data-prev", sel.value);
+  }
+  updateSelectColor(sel);
+  recalcAll();
+}
+
+/* -------------------------
+   updateSelectColor – עדכון צבע הרקע של select לפי הערך החדש
+------------------------- */
+function updateSelectColor(sel) {
+  const selects = document.querySelectorAll(".scheduleCell");
+  let names = new Set();
+  selects.forEach(s => names.add(s.value));
+  names = Array.from(names);
+  let newMap = {};
+  names.forEach((name, i) => {
+    newMap[name] = generateDistinctColor(i, names.length);
+  });
+  sel.style.backgroundColor = newMap[sel.value] || "";
+}
+
+/* -------------------------
+   recalcAll – עדכון טבלאות סטטיסטיקה, גרף והפסקות
+------------------------- */
+function recalcAll() {
+  const table = document.getElementById("scheduleInnerTable");
+  if (!table) return;
+  const rows = table.querySelectorAll("tr");
+  if (rows.length < 2) return;
+  let T = rows.length - 1;
+  
+  let opMap = {};
+  for (let r = 1; r < rows.length; r++) {
+    const cells = rows[r].querySelectorAll("td");
+    for (let c = 1; c < cells.length; c++) {
+      const sel = cells[c].querySelector("select");
+      if (!sel) continue;
+      let opName = sel.value;
+      if (!opMap[opName]) { opMap[opName] = { busy: Array(T).fill(false), total: 0 }; }
+      opMap[opName].busy[r - 1] = true;
+    }
+  }
+  for (let name in opMap) {
+    let countTrue = opMap[name].busy.filter(x => x).length;
+    opMap[name].total = countTrue * 0.5;
+  }
+  
+  let stat = '<table><tr><th>שם</th><th>סה"כ שעות</th></tr>';
+  for (let name in opMap) {
+    stat += `<tr><td>${name}</td><td>${opMap[name].total}</td></tr>`;
+  }
+  stat += '</table>';
+  document.getElementById("statisticsTable").innerHTML = stat;
+  
+  if (myChart) myChart.destroy();
+  let labels = Object.keys(opMap);
+  let worked = labels.map(n => opMap[n].total);
+  let rests = labels.map(n => T * 0.5 - opMap[n].total);
+  myChart = new Chart(document.getElementById("chart"), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'שעות עבודה', data: worked, backgroundColor: '#3498db' },
+        { label: 'שעות הפסקה', data: rests, backgroundColor: '#e67e22' }
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'top' } } }
+  });
+  
+  let breakTable = '<table><tr><th>שעה</th><th>בהפסקה</th></tr>';
+  const shiftType = document.getElementById("shiftType").value;
+  const shiftMap2 = { morning: [6,15], afternoon: [15,23], night: [23,30] };
+  const [s, e] = shiftMap2[shiftType];
+  for (let h = 0; h < Math.floor(T / 2); h++) {
+    let resting = [];
+    for (let name in opMap) {
+      if (!opMap[name].busy[2 * h] && !opMap[name].busy[2 * h + 1]) {
+        resting.push(name);
+      }
+    }
+    let hourVal = s + h;
+    breakTable += `<tr><td>${(hourVal % 24)}:00–${((hourVal + 1) % 24)}:00</td><td>${resting.join(", ") || '-'}</td></tr>`;
+  }
+  breakTable += '</table>';
+  document.getElementById("breakTable").innerHTML = breakTable;
+}
+
+/* -------------------------
+   קריאות התחלתיות
+------------------------- */
+updateOperatorsList();
+updateCraneSelection();
+updateRecommendation();
+</script>
+</body>
+</html>
